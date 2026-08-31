@@ -37,5 +37,3 @@ class Q_network(nn.Module):
     x = self.activation(self.fc2(x))
     x = self.dropout(x)
     return self.fc3(x)
-  def update(self, batch):
-    
