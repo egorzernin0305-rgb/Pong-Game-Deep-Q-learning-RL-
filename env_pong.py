@@ -3,6 +3,8 @@ from gymnasium import spaces
 import numpy as np
 import pygame
 import models
+import pandas as pd
+data = []
 
 class PongEnv(gym.Env):
     def __init__(self, render_mode = None, opponent=models.Baseline(difficult=1), agent_side='left'):
@@ -63,7 +65,7 @@ class PongEnv(gym.Env):
             self.paddle_agent_y += self.paddle_speed       #вниз
         elif action == 1:
             self.paddle_agent_y -= self.paddle_speed       #вверх
-
+        data.append(list(self.state) + [action])
         self.paddle_agent_y = np.clip(
         self.paddle_agent_y,
         self.paddle_width,
@@ -201,7 +203,7 @@ class PongEnv(gym.Env):
             pygame.quit()
             self.screen = None
 
-    def demo(self, n_steps=5, left_player=models.Baseline(difficult=1, right_play=-1), close_at_end=False):
+    def demo(self, n_steps=600, left_player=models.Baseline(difficult=1, right_play=-1), close_at_end=False):
         # Настройка левого игрока
         if isinstance(left_player, models.Baseline):
             left_player.right_play = -1
@@ -219,6 +221,12 @@ class PongEnv(gym.Env):
                 obs, _ = self.reset()
                 print(f"Эпизод завершён на шаге {step}")
         if close_at_end:
+            df = pd.DataFrame(data, columns=[
+            'ball_y', 'ball_x', 'vy', 'vx', 
+            'paddle_agent_y', 'paddle_opponent_y', 
+            'action'
+            ])
+            df.to_csv(f"pong_dataset_{n_steps}.csv", index=False)
             self.close()
 
    

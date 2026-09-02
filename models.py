@@ -87,10 +87,12 @@ class MyDQN():
         learning_starts=5000,
         device='cpu',                  # устройство ('cpu' или 'cuda')
         beta = lambda x : 1/np.log(x + 2),
-        n_samples = 10
+        n_samples = 10,
+        buffer,
+        optimizer
     ):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.q_net = q_network.to(self.device)
+        self.q_network = q_network.to(self.device)
         self.target_net = target_network.to(self.device) if target_network is not None else self._copy_network(q_network).to(self.device)
         self.lr = learning_rate
         self.buffer_capacity = buffer_capacity
@@ -103,6 +105,9 @@ class MyDQN():
         self.step_counter = 0
         self.episode_counter = {'agent' : 0,
                                 'baseline' : 0}
+        self.buffer = ReplayBuffer(batch_size=self.batch_size, capacity=self.buffer_capacity)
+        self.optimizer = Adam(self.q_network.parameters(), lr=lr)
+        
     def act(self, state, envs_params):
         state_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
         self.q_network.train()
@@ -113,4 +118,46 @@ class MyDQN():
         mean_q = q_samples.mean(dim=0)
         std_q = q_samples.std(dim=0)
         return np.argmax(mean_q + self.beta(self.step_counter)*std_q)
-    def update():
+    def update(self):
+        
+        if len(self.buffer) >= self.learning_starts:
+            batch = self.buffer.sample()
+            states, actions, rewards, next_states, dones = zip(*batch)
+
+            states = torch.tensor(np.array(states), dtype=torch.float32).to(self.device)
+            actions = torch.tensor(np.array(actions), dtype=torch.int64).to(self.device)
+            rewards = torch.tensor(np.array(rewards), dtype=torch.float32).to(self.device)
+            next_states = torch.tensor(np.array(next_states), dtype=torch.float32).to(self.device)
+            dones = torch.tensor(np.array(dones), dtype=torch.float32).to(self.device)
+
+            q_values = self.q_network(states)
+            q_s_a = q_values[range(self.batch_size), actions]
+            with torch.no_grad():
+                max_next_q = self.target_network(next_states).max(dim=1)[0]
+                targets = rewards + self.gamma * max_next_q * (1-dones)
+            
+            self.optimizer.zero_grad()
+            loss = nn.MSELoss()(q_s_a, targets)
+            loss.backward()
+            self.optimizer.step()
+            
+            return loss.item()          
+            
+        else:
+            return 0.0
+
+    def _copy_network(self, network):
+        copy = Q_Network(
+            input_size=network.fc1.in_features,
+            hidden_size=network.fc2.in_features,
+            action_size=network.fc3.out_features,
+            func_activation=network.activation,
+            dropout_proba=network.dropout_proba
+        )
+        copy.load_state_dict(network.state_dict())
+        return copy.to(self.device)
+    def learn(self, total_timesteps = 10000) 
+        
+    def pretrain_on_dataset()
+    def save()
+    def load()

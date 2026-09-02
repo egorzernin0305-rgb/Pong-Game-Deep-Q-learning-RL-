@@ -2,7 +2,8 @@ import numpy as np
 import torch 
 import pygame
 import stable_baselines3
-
+from env_pong import PongEnv
+from mydqn_components import ReplayBuffer, Q_Network
 
 class Baseline():
     def __init__(self, difficult=1, right_play=1):
@@ -72,3 +73,91 @@ class HumanPlayer():
             return 0  # вниз
         else:
             return 2  # стой
+
+class MyDQN():
+     def __init__(
+        self,
+        q_network,                   
+        target_network=None,           
+        learning_rate=1e-3,           
+        buffer_capacity=50000,       
+        batch_size=64,                 
+        gamma=0.99,                   
+        target_update_freq=1000,      
+        learning_starts=5000,
+        device='cpu',                  # устройство ('cpu' или 'cuda')
+        beta = lambda x : 1/np.log(x + 2),
+        n_samples = 10,
+        buffer,
+        optimizer
+    ):
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.q_network = q_network.to(self.device)
+        self.target_net = target_network.to(self.device) if target_network is not None else self._copy_network(q_network).to(self.device)
+        self.lr = learning_rate
+        self.buffer_capacity = buffer_capacity
+        self.batch_size = batch_size
+        self.gamma = gamma
+        self.target_update_freq = target_update_freq
+        self.learning_starts = learning_starts
+        self.beta = beta
+        self.n_samples = n_samples
+        self.step_counter = 0
+        self.episode_counter = {'agent' : 0,
+                                'baseline' : 0}
+        self.buffer = ReplayBuffer(batch_size=self.batch_size, capacity=self.buffer_capacity)
+        self.optimizer = Adam(self.q_network.parameters(), lr=lr)
+        
+    def act(self, state, envs_params):
+        state_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
+        self.q_network.train()
+        with torch.no_grad():
+            preds = [self.q_network(state_t) for _ in range(self.n_samples)]
+        self.q_network.eval()
+        q_samples = torch.cat(preds, dim=0) 
+        mean_q = q_samples.mean(dim=0)
+        std_q = q_samples.std(dim=0)
+        return np.argmax(mean_q + self.beta(self.step_counter)*std_q)
+    def update(self):
+        
+        if len(self.buffer) >= self.learning_starts:
+            batch = self.buffer.sample()
+            states, actions, rewards, next_states, dones = zip(*batch)
+
+            states = torch.tensor(np.array(states), dtype=torch.float32).to(self.device)
+            actions = torch.tensor(np.array(actions), dtype=torch.int64).to(self.device)
+            rewards = torch.tensor(np.array(rewards), dtype=torch.float32).to(self.device)
+            next_states = torch.tensor(np.array(next_states), dtype=torch.float32).to(self.device)
+            dones = torch.tensor(np.array(dones), dtype=torch.float32).to(self.device)
+
+            q_values = self.q_network(states)
+            q_s_a = q_values[range(self.batch_size), actions]
+            with torch.no_grad():
+                max_next_q = self.target_network(next_states).max(dim=1)[0]
+                targets = rewards + self.gamma * max_next_q * (1-dones)
+            
+            self.optimizer.zero_grad()
+            loss = nn.MSELoss()(q_s_a, targets)
+            loss.backward()
+            self.optimizer.step()
+            
+            return loss.item()          
+            
+        else:
+            return 0.0
+
+    def _copy_network(self, network):
+        copy = Q_Network(
+            input_size=network.fc1.in_features,
+            hidden_size=network.fc2.in_features,
+            action_size=network.fc3.out_features,
+            func_activation=network.activation,
+            dropout_proba=network.dropout_proba
+        )
+        copy.load_state_dict(network.state_dict())
+        return copy.to(self.device)
+    def learn(self, total_timesteps = 10000) 
+        
+    def pretrain_on_dataset()
+    def save()
+    def load()
