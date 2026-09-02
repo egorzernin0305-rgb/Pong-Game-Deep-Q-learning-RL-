@@ -4,6 +4,7 @@ import pygame
 import stable_baselines3
 from env_pong import PongEnv
 from mydqn_components import ReplayBuffer, Q_Network
+from torch.utils.data import DataLoader, TensorDataset
 
 class Baseline():
     def __init__(self, difficult=1, right_play=1):
@@ -158,6 +159,22 @@ class MyDQN():
         return copy.to(self.device)
     def learn(self, total_timesteps = 10000) 
         
-    def pretrain_on_dataset()
+    def pretrain_on_dataset(self, data, n_epoch = 50)
+        X = data[['ball_y', 'ball_x', 'vy', 'vx', 'paddle_agent_y', 'paddle_opponent_y']].values
+        y = data['action'].values
+        dataset = TensorDataset(X, y)
+        dataloader = DataLoader(dataset, batch_size = self.batch_size, shuffle= True)
+        criterion = nn.CrossEnthropyLoss()
+        for i in range(n_epoch):
+            for X_batch, y_batch in dataloader:
+                preds = torch.argmax(self.q_network(X_batch), dim=1)
+                
+
+
+
+
+
+
+    
     def save()
     def load()
