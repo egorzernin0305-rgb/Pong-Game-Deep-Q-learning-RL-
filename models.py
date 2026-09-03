@@ -7,6 +7,7 @@ from mydqn_components import Q_network
 from torch.utils.data import DataLoader, TensorDataset
 from torch.optim import Adam
 import torch.nn as nn
+import random
 
 class Baseline():
     def __init__(self, difficult=1, right_play=1):
