@@ -2,9 +2,11 @@ import numpy as np
 import torch 
 import pygame
 import stable_baselines3
-from env_pong import PongEnv
-from mydqn_components import ReplayBuffer, Q_Network
+from mydqn_components import ReplayBuffer
+from mydqn_components import Q_network
 from torch.utils.data import DataLoader, TensorDataset
+from torch.optim import Adam
+import torch.nn as nn
 
 class Baseline():
     def __init__(self, difficult=1, right_play=1):
@@ -78,7 +80,7 @@ class HumanPlayer():
 class MyDQN():
      def __init__(
         self,
-        q_network,                   
+        q_network,
         target_network=None,           
         learning_rate=1e-3,           
         buffer_capacity=50000,       
@@ -86,30 +88,29 @@ class MyDQN():
         gamma=0.99,                   
         target_update_freq=1000,      
         learning_starts=5000,
-        device='cpu',                  # устройство ('cpu' или 'cuda')
+        device='cpu',                  # устройство ('cpu' или 'cuda' (gpu))
         beta = lambda x : 1/np.log(x + 2),
         n_samples = 10,
-        buffer,
-        optimizer
     ):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.q_network = q_network.to(self.device)
-        self.target_net = target_network.to(self.device) if target_network is not None else self._copy_network(q_network).to(self.device)
+        self.target_network = target_network.to(self.device) if target_network is not None else self._copy_network(q_network).to(self.device)
         self.lr = learning_rate
         self.buffer_capacity = buffer_capacity
         self.batch_size = batch_size
         self.gamma = gamma
         self.target_update_freq = target_update_freq
-        self.learning_starts = learning_starts
+        self.learning_starts = learning_starts  # сколько нужно в буфере чтобы начинать учиться
         self.beta = beta
         self.n_samples = n_samples
         self.step_counter = 0
         self.episode_counter = {'agent' : 0,
                                 'baseline' : 0}
         self.buffer = ReplayBuffer(batch_size=self.batch_size, capacity=self.buffer_capacity)
-        self.optimizer = Adam(self.q_network.parameters(), lr=lr)
+        self.optimizer = Adam(self.q_network.parameters(), lr=self.lr)
+        self.loss_history = []
         
-    def act(self, state, envs_params):
+     def act(self, state, envs_params):
         state_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
         self.q_network.train()
         with torch.no_grad():
@@ -119,7 +120,7 @@ class MyDQN():
         mean_q = q_samples.mean(dim=0)
         std_q = q_samples.std(dim=0)
         return np.argmax(mean_q + self.beta(self.step_counter)*std_q)
-    def update(self):
+     def update(self):
         
         if len(self.buffer) >= self.learning_starts:
             batch = self.buffer.sample()
@@ -147,8 +148,8 @@ class MyDQN():
         else:
             return 0.0
 
-    def _copy_network(self, network):
-        copy = Q_Network(
+     def _copy_network(self, network):
+        copy = Q_network(
             input_size=network.fc1.in_features,
             hidden_size=network.fc2.in_features,
             action_size=network.fc3.out_features,
@@ -157,24 +158,56 @@ class MyDQN():
         )
         copy.load_state_dict(network.state_dict())
         return copy.to(self.device)
-    def learn(self, total_timesteps = 10000) 
-        
-    def pretrain_on_dataset(self, data, n_epoch = 50)
-        X = data[['ball_y', 'ball_x', 'vy', 'vx', 'paddle_agent_y', 'paddle_opponent_y']].values
-        y = data['action'].values
+     def learn(self, env, total_timesteps = 10000, alpha = 0.15):
+        current_state, _ = env.reset()
+        rew_on_lr = []
+        rew_on_episode = 0.0
+        for i in range(total_timesteps):
+            action = self.act(current_state, env.envs_params)
+            new_state, reward, done, _, _  = env.step(action)
+            rew_on_episode += reward
+            self.buffer.push((current_state, action, reward, new_state, done))
+            cur_loss = self.update()
+            current_state = new_state
+            if i % 1000 == 0:
+                self.loss_history.append(cur_loss)
+            if self.step_counter % self.target_update_freq == 0:
+                self.target_network.load_state_dict(self.q_network.state_dict())
+            self.step_counter += 1
+            if done:
+                rew_on_lr.append(rew_on_episode if not rew_on_lr else (1-alpha)*rew_on_lr[-1] + alpha*rew_on_episode)
+                rew_on_episode = 0.0
+                current_state, _ = env.reset()
+        return rew_on_lr    # по нему можно построить график как в лекции от шада
+                
+     def pretrain_on_dataset(self, data, n_epoch = 10):
+        X = torch.tensor(data[['ball_y', 'ball_x', 'vy', 'vx', 'paddle_agent_y', 'paddle_opponent_y']].values, dtype=torch.float32)
+        y = torch.tensor(data['action'].values, dtype = torch.long)
         dataset = TensorDataset(X, y)
         dataloader = DataLoader(dataset, batch_size = self.batch_size, shuffle= True)
-        criterion = nn.CrossEnthropyLoss()
+        criterion = nn.CrossEntropyLoss()
+        
         for i in range(n_epoch):
+            ep_loss = 0.0
             for X_batch, y_batch in dataloader:
-                preds = torch.argmax(self.q_network(X_batch), dim=1)
                 
+                X_batch = X_batch.to(self.device)
+                y_batch = y_batch.to(self.device)
+                preds = self.q_network(X_batch)
 
+                self.optimizer.zero_grad()
+                loss = criterion(preds, y_batch)
+                ep_loss += loss.item()
+                loss.backward()
+                self.optimizer.step()
 
-
-
-
-
-    
-    def save()
-    def load()
+            if i % 10 == 0:
+                print(f"{ep_loss/(len(dataloader))} - loss on {i+1}-th epoch")
+                
+     def save(self, filename):
+        path = "saved_models/" + filename
+        torch.save(self.q_network.state_dict(), path)
+     def load(self, filename):
+        path = "saved_models/" + filename
+        self.q_network.load_state_dict(torch.load(path, map_location = self.device))
+        self.target_network.load_state_dict(self.q_network.state_dict())

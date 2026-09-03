@@ -4,10 +4,10 @@ import numpy as np
 import pygame
 import models
 import pandas as pd
-data = []
+
 
 class PongEnv(gym.Env):
-    def __init__(self, render_mode = None, opponent=models.Baseline(difficult=1), agent_side='left'):
+    def __init__(self, render_mode = None, opponent=models.Baseline(difficult=1), agent_side='left', n_rounds=10):
         super().__init__()
 
         self.agent_side = agent_side
@@ -42,11 +42,14 @@ class PongEnv(gym.Env):
         self.ball_size / self.field_height,
         self.ball_speed / self.ball_speed
         ]
-
+        self.scoreboard = {'agent' : 0, 'opponent' : 0}
+        self.n_rounds = n_rounds
         # Нормализованные параметры среды
         
-    def reset(self, seed=None, options=None):
+    def reset(self, seed=None, options=None, reset_scoreboard= False):
         super().reset(seed=seed)
+        if reset_scoreboard:
+            self.scoreboard = {'agent' : 0, 'opponent' : 0}
         if seed is not None:
             np.random.seed(seed)
 
@@ -58,14 +61,14 @@ class PongEnv(gym.Env):
         self.paddle_opponent_y = self.field_height // 2 - self.paddle_height // 2
         obs = np.array([self.ball_y/self.field_height, self.ball_x/self.field_width, self.vy / self.max_speed, self.vx / self.max_speed,  self.paddle_agent_y / self.field_height,  self.paddle_opponent_y / self.field_height], dtype=np.float32)
         self.state = obs
-        return obs, {}
+        return obs, self.scoreboard
     def step(self, action):
         ## Действие Агента
         if action == 0:
             self.paddle_agent_y += self.paddle_speed       #вниз
         elif action == 1:
             self.paddle_agent_y -= self.paddle_speed       #вверх
-        data.append(list(self.state) + [action])
+            
         self.paddle_agent_y = np.clip(
         self.paddle_agent_y,
         self.paddle_width,
@@ -133,13 +136,18 @@ class PongEnv(gym.Env):
         if (self.ball_x < 0):
             reward += -1   # Нам забили
             terminated = True
+            self.scoreboard['opponent'] += 1
+            if self.scoreboard['opponent'] >= self.n_rounds:
+                truncated = True
         if (self.ball_x > self.field_width):
             reward += 1    # Мы забили
             terminated = True
-
+            self.scoreboard['agent'] += 1
+            if self.scoreboard['agent'] >= self.n_rounds:
+                truncated = True
         self.state= np.array([self.ball_y/self.field_height, self.ball_x/self.field_width, self.vy / self.max_speed, self.vx / self.max_speed,  self.paddle_agent_y / self.field_height,  self.paddle_opponent_y / self.field_height], dtype=np.float32)
 
-        return self.state, reward, terminated, truncated, {}
+        return self.state, reward, terminated, truncated, self.scoreboard
 
     def render(self):
         if self.render_mode == "human":
@@ -150,27 +158,28 @@ class PongEnv(gym.Env):
                 )
                 pygame.display.set_caption("Pong RL")
                 self.clock = pygame.time.Clock()
-
+                self.font = pygame.font.SysFont("Arial", 36)  # шрифт для счёта
+    
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.close()
                     return
-
+    
             self.screen.fill((0, 0, 0))
-
+    
             # Белые границы (каёмка)
             border_width = self.paddle_width  # 10px
             pygame.draw.rect(
-            self.screen,
-            (255, 255, 255),
-            (0, 0, self.field_width, border_width)  # верхняя
+                self.screen,
+                (255, 255, 255),
+                (0, 0, self.field_width, border_width)  # верхняя
             )
             pygame.draw.rect(
-            self.screen,
-            (255, 255, 255),
-            (0, self.field_height - border_width, self.field_width, border_width)  # нижняя
+                self.screen,
+                (255, 255, 255),
+                (0, self.field_height - border_width, self.field_width, border_width)  # нижняя
             )
-
+    
             # Мяч
             pygame.draw.circle(
                 self.screen,
@@ -178,7 +187,7 @@ class PongEnv(gym.Env):
                 (int(self.ball_x), int(self.ball_y)),
                 self.ball_size // 2
             )
-
+    
             # Левая ракетка (агент)
             pygame.draw.rect(
                 self.screen,
@@ -186,7 +195,7 @@ class PongEnv(gym.Env):
                 (self.paddle_agent_x, self.paddle_agent_y,
                  self.paddle_width, self.paddle_height)
             )
-
+    
             # Правая ракетка (оппонент)
             pygame.draw.rect(
                 self.screen,
@@ -194,42 +203,59 @@ class PongEnv(gym.Env):
                 (self.paddle_opponent_x, self.paddle_opponent_y,
                  self.paddle_width, self.paddle_height)
             )
-
+    
+            # Счёт
+            score_text = f"{self.scoreboard['agent']} : {self.scoreboard['opponent']}"
+            text_surface = self.font.render(score_text, True, (255, 255, 255))
+            text_rect = text_surface.get_rect(center=(self.field_width // 2, 30))
+            self.screen.blit(text_surface, text_rect)
+    
             pygame.display.flip()
             self.clock.tick(60)
-
+            
     def close(self):
         if self.screen is not None:
-            pygame.quit()
+            pygame.display.quit()
             self.screen = None
 
-    def demo(self, n_steps=600, left_player=models.Baseline(difficult=1, right_play=-1), close_at_end=False):
+    def demo(self, left_player=models.Baseline(difficult=1, right_play=-1)):
         # Настройка левого игрока
         if isinstance(left_player, models.Baseline):
             left_player.right_play = -1
         
-        # Используем текущее окружение (self)
         # self.opponent уже задан в __init__
-        obs, _ = self.reset()
-        
-        for step in range(n_steps):
+        _, _ = self.reset(reset_scoreboard=True)
+        truncated = False
+        reward_for_round = 0.0
+        rewards = []
+        steps_count_for_round = 0
+        steps_count = []
+        while not truncated:
             action = left_player.act(self.state, self.envs_params)
             obs, reward, terminated, truncated, info = self.step(action)
+            reward_for_round += reward
+            steps_count_for_round += 1
             self.render()
             
             if terminated or truncated:
-                obs, _ = self.reset()
-                print(f"Эпизод завершён на шаге {step}")
-        if close_at_end:
-            df = pd.DataFrame(data, columns=[
-            'ball_y', 'ball_x', 'vy', 'vx', 
-            'paddle_agent_y', 'paddle_opponent_y', 
-            'action'
-            ])
-            df.to_csv(f"pong_dataset_{n_steps}.csv", index=False)
-            self.close()
-
-   
-
+                rewards.append(reward_for_round)
+                steps_count.append(steps_count_for_round)
+                reward_for_round = 0.0
+                steps_count_for_round = 0
+                _, _ = self.reset()
+        rewards = np.array(rewards)
+        steps_count = np.array(steps_count)
+        stats = {
+            'avg_round_steps' : steps_count.mean(),
+            'avg_round_time' : (steps_count.mean())/60,
+            'avg_round_reward' : rewards.mean(),
+            'variance_reward' : rewards.var(),
+            'score' : self.scoreboard,
+            'agent_win_rate' : self.scoreboard['agent']/(self.scoreboard['agent'] + self.scoreboard['opponent']),
+            'rounds_amount' : self.scoreboard['agent'] + self.scoreboard['opponent']
+        }
+        self.close()
+        return stats
+        
 ## action = 2 - stay
 ## action = 0  1 двигаемся (вверх = 1) (вниз = 0)
