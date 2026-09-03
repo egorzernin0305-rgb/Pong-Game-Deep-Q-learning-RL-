@@ -115,13 +115,13 @@ class MyDQN():
         self.q_network.train()
         with torch.no_grad():
             preds = [self.q_network(state_t) for _ in range(self.n_samples)]
-        self.q_network.eval()
         q_samples = torch.cat(preds, dim=0) 
         mean_q = q_samples.mean(dim=0)
         std_q = q_samples.std(dim=0)
         return torch.argmax(mean_q + self.beta(self.step_counter) * std_q).item()
+
      def update(self):
-        
+         
         if len(self.buffer) >= self.learning_starts:
             batch = self.buffer.sample()
             states, actions, rewards, next_states, dones = zip(*batch)
@@ -134,7 +134,9 @@ class MyDQN():
 
             q_values = self.q_network(states)
             q_s_a = q_values[range(self.batch_size), actions]
+            
             with torch.no_grad():
+                self.target_network.eval()
                 max_next_q = self.target_network(next_states).max(dim=1)[0]
                 targets = rewards + self.gamma * max_next_q * (1-dones)
             
@@ -144,10 +146,8 @@ class MyDQN():
             self.optimizer.step()
             
             return loss.item()          
-            
         else:
             return 0.0
-
      def _copy_network(self, network):
         copy = Q_network(
             input_size=network.fc1.in_features,
@@ -169,7 +169,7 @@ class MyDQN():
             self.buffer.push((current_state, action, reward, new_state, done))
             cur_loss = self.update()
             current_state = new_state
-            if i % 1000 == 0:
+            if (i % 1000 == 0) and i > (self.learning_starts):
                 self.loss_history.append(cur_loss)
             if self.step_counter % self.target_update_freq == 0:
                 self.target_network.load_state_dict(self.q_network.state_dict())
@@ -181,6 +181,7 @@ class MyDQN():
         return rew_on_lr    # по нему можно построить график как в лекции от шада
                 
      def pretrain_on_dataset(self, data, n_epoch = 10):
+        self.q_network.train()
         X = torch.tensor(data[['ball_y', 'ball_x', 'vy', 'vx', 'paddle_agent_y', 'paddle_opponent_y']].values, dtype=torch.float32)
         y = torch.tensor(data['action'].values, dtype = torch.long)
         dataset = TensorDataset(X, y)
@@ -211,3 +212,4 @@ class MyDQN():
         path = "saved_models/" + filename
         self.q_network.load_state_dict(torch.load(path, map_location = self.device))
         self.target_network.load_state_dict(self.q_network.state_dict())
+        self.q_network.train()
