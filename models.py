@@ -119,7 +119,7 @@ class MyDQN():
         q_samples = torch.cat(preds, dim=0) 
         mean_q = q_samples.mean(dim=0)
         std_q = q_samples.std(dim=0)
-        return np.argmax(mean_q + self.beta(self.step_counter)*std_q)
+        return torch.argmax(mean_q + self.beta(self.step_counter) * std_q).item()
      def update(self):
         
         if len(self.buffer) >= self.learning_starts:
