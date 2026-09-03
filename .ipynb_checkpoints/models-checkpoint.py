@@ -110,16 +110,24 @@ class MyDQN():
         self.optimizer = Adam(self.q_network.parameters(), lr=self.lr)
         self.loss_history = []
         
-     def act(self, state, envs_params):
-        state_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
-        self.q_network.train()
-        with torch.no_grad():
-            preds = [self.q_network(state_t) for _ in range(self.n_samples)]
-        q_samples = torch.cat(preds, dim=0) 
-        mean_q = q_samples.mean(dim=0)
-        std_q = q_samples.std(dim=0)
-        return torch.argmax(mean_q + self.beta(self.step_counter) * std_q).item()
 
+     def act(self, state, envs_params):
+        # Рассчитываем epsilon, который падает с 1.0 (полный рандом) до 0.05 (почти жадный)
+        # На старте обучения (5000 шагов) он будет около 0.9, на 100к шагов — около 0.15
+        eps = 0.05 + 0.95 * np.exp(-self.step_counter / 50000)
+        
+        # С вероятностью eps делаем полностью случайный шаг
+        if random.random() < eps:
+            return random.randint(0, 2) # Предполагаем, что у тебя 3 действия (0, 1, 2)
+            
+        # Иначе — берем жадное предсказание сети БЕЗ дропаута
+        state_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
+        self.q_network.eval() # временно выключаем дропаут, чтобы не шумел масштаб
+        with torch.no_grad():
+            q_values = self.q_network(state_t)
+        self.q_network.train() # возвращаем обратно в train перед выходом
+        
+        return torch.argmax(q_values).item()
      def update(self):
          
         if len(self.buffer) >= self.learning_starts:
