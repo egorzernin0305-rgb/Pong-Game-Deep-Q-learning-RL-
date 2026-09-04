@@ -90,7 +90,7 @@ class MyDQN():
         target_update_freq=1000,      
         learning_starts=20000,
         device='cpu',                  # устройство ('cpu' или 'cuda' (gpu))
-        beta = lambda x: 0.5 + 0.5 * np.exp(-x / 150000),
+        beta = lambda x: 1.0 * np.exp(-x / 150000),
         n_samples = 10,
     ):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -114,40 +114,44 @@ class MyDQN():
 
      def act(self, state, envs_params):
         state_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
-        self.q_network.train()
+        self.q_network.train()  # dropout включён для MC-сэмплирования
+    
         with torch.no_grad():
-            preds = [self.q_network(state_t) for _ in range(self.n_samples)]
-        q_samples = torch.cat(preds, dim=0) 
-        mean_q = q_samples.mean(dim=0)
-        std_q = (q_samples.std(dim=0))/ (torch.abs(mean_q) + 1e-6)
-        return torch.argmax(mean_q + self.beta(self.step_counter) * std_q).item()
+            state_rep = state_t.repeat(self.n_samples, 1)   # один батчевый forward вместо 10 отдельных вызовов
+            q_samples = self.q_network(state_rep)            # (n_samples, action_size)
+            mean_q = q_samples.mean(dim=0)
+            std_q = q_samples.std(dim=0)
+    
+            scale = mean_q.abs().mean() + 1e-6               # общий масштаб по всем действиям, а не по каждому отдельно
+            std_q_norm = std_q / scale
+    
+        return torch.argmax(mean_q + self.beta(self.step_counter) * std_q_norm).item()
         
      def update(self):
-        self.q_network.eval()
+        self.q_network.train()  # dropout ВКЛЮЧЁН — сеть учится тем же способом, каким потом сэмплируется в act()
         if len(self.buffer) >= self.learning_starts:
             batch = self.buffer.sample()
             states, actions, rewards, next_states, dones = zip(*batch)
-
+    
             states = torch.tensor(np.array(states), dtype=torch.float32).to(self.device)
             actions = torch.tensor(np.array(actions), dtype=torch.int64).to(self.device)
             rewards = torch.tensor(np.array(rewards), dtype=torch.float32).to(self.device)
             next_states = torch.tensor(np.array(next_states), dtype=torch.float32).to(self.device)
             dones = torch.tensor(np.array(dones), dtype=torch.float32).to(self.device)
-
-            q_values = self.q_network(states)
+    
+            q_values = self.q_network(states)          # forward теперь с dropout — как и задумано в MC-Dropout
             q_s_a = q_values[range(self.batch_size), actions]
-            
+    
             with torch.no_grad():
-                self.target_network.eval()
+                self.target_network.eval()              # таргет по-прежнему без dropout — стабильный ориентир
                 max_next_q = self.target_network(next_states).max(dim=1)[0]
-                targets = rewards + self.gamma * max_next_q * (1-dones)
-            
+                targets = rewards + self.gamma * max_next_q * (1 - dones)
+    
             self.optimizer.zero_grad()
             loss = nn.MSELoss()(q_s_a, targets)
             loss.backward()
             self.optimizer.step()
-            self.q_network.train()
-            return loss.item()          
+            return loss.item()
         else:
             self.q_network.train()
             return 0.0
