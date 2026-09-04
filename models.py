@@ -83,14 +83,14 @@ class MyDQN():
         self,
         q_network,
         target_network=None,           
-        learning_rate=1e-3,           
+        learning_rate=5e-4,           
         buffer_capacity=50000,       
         batch_size=64,                 
         gamma=0.99,                   
         target_update_freq=1000,      
-        learning_starts=5000,
+        learning_starts=20000,
         device='cpu',                  # устройство ('cpu' или 'cuda' (gpu))
-        beta = lambda x : 1/np.log(x + 2),
+        beta = lambda x: 0.5 + 0.5 * np.exp(-x / 150000),
         n_samples = 10,
     ):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -112,25 +112,18 @@ class MyDQN():
         self.loss_history = []
         
 
-     def act(self, state, envs_params):
-        # Рассчитываем epsilon, который падает с 1.0 (полный рандом) до 0.05 (почти жадный)
-        # На старте обучения (5000 шагов) он будет около 0.9, на 100к шагов — около 0.15
-        eps = 0.05 + 0.95 * np.exp(-self.step_counter / 50000)
-        
-        # С вероятностью eps делаем полностью случайный шаг
-        if random.random() < eps:
-            return random.randint(0, 2) # Предполагаем, что у тебя 3 действия (0, 1, 2)
-            
-        # Иначе — берем жадное предсказание сети БЕЗ дропаута
+    def act(self, state, envs_params):
         state_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
-        self.q_network.eval() # временно выключаем дропаут, чтобы не шумел масштаб
+        self.q_network.train()
         with torch.no_grad():
-            q_values = self.q_network(state_t)
-        self.q_network.train() # возвращаем обратно в train перед выходом
+            preds = [self.q_network(state_t) for _ in range(self.n_samples)]
+        q_samples = torch.cat(preds, dim=0) 
+        mean_q = q_samples.mean(dim=0)
+        std_q = (q_samples.std(dim=0))/ (torch.abs(mean_q) + 1e-6)
+        return torch.argmax(mean_q + self.beta(self.step_counter) * std_q).item()
         
-        return torch.argmax(q_values).item()
      def update(self):
-         
+        self.q_network.eval()
         if len(self.buffer) >= self.learning_starts:
             batch = self.buffer.sample()
             states, actions, rewards, next_states, dones = zip(*batch)
@@ -153,9 +146,10 @@ class MyDQN():
             loss = nn.MSELoss()(q_s_a, targets)
             loss.backward()
             self.optimizer.step()
-            
+            self.q_network.train()
             return loss.item()          
         else:
+            self.q_network.train()
             return 0.0
      def _copy_network(self, network):
         copy = Q_network(
