@@ -83,7 +83,7 @@ class MyDQN():
         self,
         q_network,
         target_network=None,           
-        learning_rate=5e-4,           
+        learning_rate=8e-4,           
         buffer_capacity=50000,       
         batch_size=64,                 
         gamma=0.99,                   
@@ -112,7 +112,7 @@ class MyDQN():
         self.loss_history = []
         
 
-    def act(self, state, envs_params):
+     def act(self, state, envs_params):
         state_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
         self.q_network.train()
         with torch.no_grad():
@@ -181,6 +181,8 @@ class MyDQN():
                 rew_on_lr.append(rew_on_episode if not rew_on_lr else (1-alpha)*rew_on_lr[-1] + alpha*rew_on_episode)
                 rew_on_episode = 0.0
                 current_state, _ = env.reset()
+            if (i % 100000 == 0):
+                print(f"прошло {i+1} шагов")
         return rew_on_lr    # по нему можно построить график как в лекции от шада
                 
      def pretrain_on_dataset(self, data, n_epoch = 10):
