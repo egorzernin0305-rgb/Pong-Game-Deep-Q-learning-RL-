@@ -84,7 +84,7 @@ class MyDQN():
         q_network,
         target_network=None,           
         learning_rate=1e-4,           
-        buffer_capacity=150000,       
+        buffer_capacity=50000,       
         batch_size=64,                 
         gamma=0.99,                   
         target_update_freq=1000,      
@@ -92,7 +92,7 @@ class MyDQN():
         device='cpu',                  # устройство ('cpu' или 'cuda' (gpu))
         beta = lambda x: 1.0 * np.exp(-x / 150000),
         n_samples = 10,
-    ):
+     ):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.q_network = q_network.to(self.device)
         self.target_network = target_network.to(self.device) if target_network is not None else self._copy_network(q_network).to(self.device)
@@ -112,16 +112,18 @@ class MyDQN():
         self.loss_history = []
         
 
-     def act(self, state, envs_params):
+     def act(self, state, envs_params, eps_start=1.0, eps_end=0.02, eps_decay=50000):
+        epsilon = eps_end + (eps_start - eps_end) * np.exp(-self.step_counter / eps_decay)
+        if np.random.random() < epsilon:
+            return np.random.randint(3)
+    
         state_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
         self.q_network.train()
-    
         with torch.no_grad():
             state_rep = state_t.repeat(self.n_samples, 1)
             q_samples = self.q_network(state_rep)
             mean_q = q_samples.mean(dim=0)
             std_q = q_samples.std(dim=0)
-    
             scale = mean_q.abs().mean() + 1e-6
             std_q_norm = std_q / scale
     
