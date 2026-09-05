@@ -187,7 +187,7 @@ class MyDQN():
                 current_state, _ = env.reset()
             if (i % 100000 == 0 and i>1):
                 print(f"прошло {i+1} шагов")
-                self._save_and_logs(i=i, environment = env)
+                self._save_and_logs(i=i, eval_env = eval_env)
         return rew_on_lr    # по нему можно построить график как в лекции от шада
                 
      def pretrain_on_dataset(self, data, n_epoch = 10):
