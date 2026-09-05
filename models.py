@@ -153,6 +153,10 @@ class MyDQN():
             loss = nn.MSELoss()(q_s_a, targets)
             loss.backward()
             self.optimizer.step()
+            tau = 0.005
+
+            for target_param, param in zip(self.target_network.parameters(), self.q_network.parameters()):
+                target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
             return loss.item()
         else:
             self.q_network.train()
@@ -178,11 +182,11 @@ class MyDQN():
             self.buffer.push((current_state, action, reward, new_state, done))
             cur_loss = self.update()
             current_state = new_state
+            self.step_counter += 1
             if (i % 1000 == 0) and i > (self.learning_starts):
                 self.loss_history.append(cur_loss)
-            if self.step_counter % self.target_update_freq == 0:
-                self.target_network.load_state_dict(self.q_network.state_dict())
-            self.step_counter += 1
+            #if self.step_counter % self.target_update_freq == 0:
+            #    self.target_network.load_state_dict(self.q_network.state_dict())
             if done:
                 rew_on_lr.append(rew_on_episode if not rew_on_lr else (1-alpha)*rew_on_lr[-1] + alpha*rew_on_episode)
                 rew_on_episode = 0.0
