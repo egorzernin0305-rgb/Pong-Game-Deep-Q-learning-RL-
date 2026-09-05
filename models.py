@@ -83,8 +83,8 @@ class MyDQN():
         self,
         q_network,
         target_network=None,           
-        learning_rate=8e-4,           
-        buffer_capacity=50000,       
+        learning_rate=1e-4,           
+        buffer_capacity=150000,       
         batch_size=64,                 
         gamma=0.99,                   
         target_update_freq=1000,      
@@ -114,21 +114,21 @@ class MyDQN():
 
      def act(self, state, envs_params):
         state_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
-        self.q_network.train()  # dropout включён для MC-сэмплирования
+        self.q_network.train()
     
         with torch.no_grad():
-            state_rep = state_t.repeat(self.n_samples, 1)   # один батчевый forward вместо 10 отдельных вызовов
-            q_samples = self.q_network(state_rep)            # (n_samples, action_size)
+            state_rep = state_t.repeat(self.n_samples, 1)
+            q_samples = self.q_network(state_rep)
             mean_q = q_samples.mean(dim=0)
             std_q = q_samples.std(dim=0)
     
-            scale = mean_q.abs().mean() + 1e-6               # общий масштаб по всем действиям, а не по каждому отдельно
+            scale = mean_q.abs().mean() + 1e-6
             std_q_norm = std_q / scale
     
         return torch.argmax(mean_q + self.beta(self.step_counter) * std_q_norm).item()
         
      def update(self):
-        self.q_network.train()  # dropout ВКЛЮЧЁН — сеть учится тем же способом, каким потом сэмплируется в act()
+        self.q_network.train()
         if len(self.buffer) >= self.learning_starts:
             batch = self.buffer.sample()
             states, actions, rewards, next_states, dones = zip(*batch)
@@ -139,11 +139,11 @@ class MyDQN():
             next_states = torch.tensor(np.array(next_states), dtype=torch.float32).to(self.device)
             dones = torch.tensor(np.array(dones), dtype=torch.float32).to(self.device)
     
-            q_values = self.q_network(states)          # forward теперь с dropout — как и задумано в MC-Dropout
+            q_values = self.q_network(states)
             q_s_a = q_values[range(self.batch_size), actions]
     
             with torch.no_grad():
-                self.target_network.eval()              # таргет по-прежнему без dropout — стабильный ориентир
+                self.target_network.eval()
                 max_next_q = self.target_network(next_states).max(dim=1)[0]
                 targets = rewards + self.gamma * max_next_q * (1 - dones)
     
@@ -165,7 +165,7 @@ class MyDQN():
         )
         copy.load_state_dict(network.state_dict())
         return copy.to(self.device)
-     def learn(self, env, total_timesteps = 10000, alpha = 0.15):
+     def learn(self, env, eval_env = None, total_timesteps = 10000, alpha = 0.15):
         current_state, _ = env.reset()
         rew_on_lr = []
         rew_on_episode = 0.0
@@ -185,8 +185,9 @@ class MyDQN():
                 rew_on_lr.append(rew_on_episode if not rew_on_lr else (1-alpha)*rew_on_lr[-1] + alpha*rew_on_episode)
                 rew_on_episode = 0.0
                 current_state, _ = env.reset()
-            if (i % 100000 == 0):
+            if (i % 100000 == 0 and i>1):
                 print(f"прошло {i+1} шагов")
+                self._save_and_logs(i=i, environment = env)
         return rew_on_lr    # по нему можно построить график как в лекции от шада
                 
      def pretrain_on_dataset(self, data, n_epoch = 10):
@@ -222,3 +223,17 @@ class MyDQN():
         self.q_network.load_state_dict(torch.load(path, map_location = self.device))
         self.target_network.load_state_dict(self.q_network.state_dict())
         self.q_network.train()
+     def _save_and_logs(self, i, eval_env):
+        if eval_env:
+            self.save(f"pong_mydqn_rb150_{i}_steps")
+            real_step_counter = self.step_counter
+            self.step_counter = 10**9
+            try:
+                stats_mydqn = eval_env.demo(left_player=self)
+            finally:
+                self.step_counter = real_step_counter
+            for key, element in stats_mydqn.items():
+                print(f"{key} - {element}")
+            print(f"current loss - {self.loss_history[-1]}")
+             
+        
