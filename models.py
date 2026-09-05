@@ -146,9 +146,9 @@ class MyDQN():
     
             with torch.no_grad():
                 self.target_network.eval()
-                max_next_q = self.target_network(next_states).max(dim=1)[0]
+                next_actions = self.q_network(next_states).argmax(dim=1)          # выбор действия — онлайн-сетью
+                max_next_q = self.target_network(next_states).gather(1, next_actions.unsqueeze(1)).squeeze(1)  # оценка — таргет-сетью
                 targets = rewards + self.gamma * max_next_q * (1 - dones)
-    
             self.optimizer.zero_grad()
             loss = nn.MSELoss()(q_s_a, targets)
             loss.backward()
