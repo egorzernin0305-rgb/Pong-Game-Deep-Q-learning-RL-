@@ -165,7 +165,7 @@ class MyDQN():
         )
         copy.load_state_dict(network.state_dict())
         return copy.to(self.device)
-     def learn(self, env, eval_env = None, total_timesteps = 10000, alpha = 0.15):
+     def learn(self, env, eval_env = None, total_timesteps = 10000, alpha = 0.01):
         current_state, _ = env.reset()
         rew_on_lr = []
         rew_on_episode = 0.0
