@@ -152,6 +152,7 @@ class MyDQN():
             self.optimizer.zero_grad()
             loss = nn.MSELoss()(q_s_a, targets)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), max_norm=1.0)  # gradient clipping 
             self.optimizer.step()
             tau = 0.005
 
@@ -171,7 +172,7 @@ class MyDQN():
         )
         copy.load_state_dict(network.state_dict())
         return copy.to(self.device)
-     def learn(self, env, eval_env = None, total_timesteps = 10000, alpha = 0.01):
+     def learn(self, env, eval_env = None, total_timesteps = 10000, alpha = 0.01, train_freq=4):
         current_state, _ = env.reset()
         rew_on_lr = []
         rew_on_episode = 0.0
@@ -180,7 +181,8 @@ class MyDQN():
             new_state, reward, done, _, _  = env.step(action)
             rew_on_episode += reward
             self.buffer.push((current_state, action, reward, new_state, done))
-            cur_loss = self.update()
+            if i % train_freq == 0:
+                cur_loss = self.update()   # ибо stable baselines раз в 4 шага, мб поможет
             current_state = new_state
             self.step_counter += 1
             if (i % 1000 == 0) and i > (self.learning_starts):
