@@ -91,7 +91,7 @@ class MyDQN():
         learning_starts=20000,
         device='cpu',                  # устройство ('cpu' или 'cuda' (gpu))
         beta = lambda x: 1.0 * np.exp(-x / 150000),
-        n_samples = 10,
+        n_samples = 20, #пока что в рамках эксперимента (было 10)
      ):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.q_network = q_network.to(self.device)
@@ -150,7 +150,8 @@ class MyDQN():
                 max_next_q = self.target_network(next_states).gather(1, next_actions.unsqueeze(1)).squeeze(1)  # оценка — таргет-сетью
                 targets = rewards + self.gamma * max_next_q * (1 - dones)
             self.optimizer.zero_grad()
-            loss = nn.MSELoss()(q_s_a, targets)
+            loss = nn.SmoothL1Loss()(q_s_a, targets)
+            #loss = nn.MSELoss()(q_s_a, targets)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), max_norm=1.0)  # gradient clipping 
             self.optimizer.step()
