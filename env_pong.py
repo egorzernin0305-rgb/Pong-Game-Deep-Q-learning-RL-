@@ -121,8 +121,10 @@ class PongEnv(gym.Env):
                 self.vx = np.sign(self.vx)*self.ball_speed      #сбрасываем ускорение с которым отбил оппонент
                 self.vy = np.sign(self.vy)*self.ball_speed
                 self.vy = self.vy * (1 + alpha**2)
-                self.vx = -self.vx* (1 + (1 - alpha**2))   
-            reward += 0.3*np.exp(abs(alpha))  ## агент больше учится отбивать краем ракетки
+                self.vx = -self.vx* (1 + (1 - alpha**2))
+                
+            reward += 0.3 * (1 + abs(alpha))
+            #reward += 0.3*np.exp(abs(alpha))  ## агент больше учится отбивать краем ракетки
             #reward += 0.15 + 0.1*abs(alpha)
 
         if (cond_opponent_hitb):
