@@ -3,13 +3,11 @@
 > Кастомное окружение Pong на `gymnasium` + агент на базе DQN с нестандартным механизмом exploration через MC-Dropout (UCB), предобученный имитацией эвристики и дообученный онлайн-RL.
 
 <p align="center">
-  <!-- ЗАПОЛНИТЬ: общий geplay-гиф/скриншот -->
-  <img src="docs/demo.gif" alt="Pong agent gameplay demo" width="600">
+  <img src="docs/demo.gif" alt="My_DQN gameplay" width="600">
 </p>
 
 <p align="center">
-  <!-- ЗАПОЛНИТЬ: гиф именно с ударом по краю ракетки — ключевая найденная стратегия -->
-  <img src="docs/edge_hit.gif" alt="Agent hitting the ball with the paddle edge" width="600">
+  <img src="docs/edge_hit.gif" alt="Stable_baselines3 DQN gameplay" width="600">
 </p>
 
 ---
