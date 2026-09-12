@@ -83,16 +83,16 @@ class MyDQN():
         self,
         q_network,
         target_network=None,           
-        learning_rate=8e-4,           
+        learning_rate=1e-4,           
         buffer_capacity=50000,       
         batch_size=64,                 
         gamma=0.99,                   
         target_update_freq=1000,      
         learning_starts=20000,
         device='cpu',                  # устройство ('cpu' или 'cuda' (gpu))
-        beta = lambda x: 0.5 + 0.5 * np.exp(-x / 150000),
-        n_samples = 10,
-    ):
+        beta = lambda x: 1.0 * np.exp(-x / 150000),
+        n_samples = 20, #пока что в рамках эксперимента (было 10)
+     ):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.q_network = q_network.to(self.device)
         self.target_network = target_network.to(self.device) if target_network is not None else self._copy_network(q_network).to(self.device)
@@ -112,42 +112,54 @@ class MyDQN():
         self.loss_history = []
         
 
-     def act(self, state, envs_params):
+     def act(self, state, envs_params, eps_start=1.0, eps_end=0.02, eps_decay=50000):
+        epsilon = eps_end + (eps_start - eps_end) * np.exp(-self.step_counter / eps_decay)
+        if np.random.random() < epsilon:
+            return np.random.randint(3)
+    
         state_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
         self.q_network.train()
         with torch.no_grad():
-            preds = [self.q_network(state_t) for _ in range(self.n_samples)]
-        q_samples = torch.cat(preds, dim=0) 
-        mean_q = q_samples.mean(dim=0)
-        std_q = (q_samples.std(dim=0))/ (torch.abs(mean_q) + 1e-6)
-        return torch.argmax(mean_q + self.beta(self.step_counter) * std_q).item()
+            state_rep = state_t.repeat(self.n_samples, 1)
+            q_samples = self.q_network(state_rep)
+            mean_q = q_samples.mean(dim=0)
+            std_q = q_samples.std(dim=0)
+            scale = mean_q.abs().mean() + 1e-6
+            std_q_norm = std_q / scale
+    
+        return torch.argmax(mean_q + self.beta(self.step_counter) * std_q_norm).item()
         
      def update(self):
-        self.q_network.eval()
+        self.q_network.train()
         if len(self.buffer) >= self.learning_starts:
             batch = self.buffer.sample()
             states, actions, rewards, next_states, dones = zip(*batch)
-
+    
             states = torch.tensor(np.array(states), dtype=torch.float32).to(self.device)
             actions = torch.tensor(np.array(actions), dtype=torch.int64).to(self.device)
             rewards = torch.tensor(np.array(rewards), dtype=torch.float32).to(self.device)
             next_states = torch.tensor(np.array(next_states), dtype=torch.float32).to(self.device)
             dones = torch.tensor(np.array(dones), dtype=torch.float32).to(self.device)
-
+    
             q_values = self.q_network(states)
             q_s_a = q_values[range(self.batch_size), actions]
-            
+    
             with torch.no_grad():
                 self.target_network.eval()
-                max_next_q = self.target_network(next_states).max(dim=1)[0]
-                targets = rewards + self.gamma * max_next_q * (1-dones)
-            
+                next_actions = self.q_network(next_states).argmax(dim=1)          # выбор действия — онлайн-сетью
+                max_next_q = self.target_network(next_states).gather(1, next_actions.unsqueeze(1)).squeeze(1)  # оценка — таргет-сетью
+                targets = rewards + self.gamma * max_next_q * (1 - dones)
             self.optimizer.zero_grad()
-            loss = nn.MSELoss()(q_s_a, targets)
+            loss = nn.SmoothL1Loss()(q_s_a, targets)
+            #loss = nn.MSELoss()(q_s_a, targets)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), max_norm=1.0)  # gradient clipping 
             self.optimizer.step()
-            self.q_network.train()
-            return loss.item()          
+            tau = 0.005
+
+            for target_param, param in zip(self.target_network.parameters(), self.q_network.parameters()):
+                target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+            return loss.item()
         else:
             self.q_network.train()
             return 0.0
@@ -161,7 +173,7 @@ class MyDQN():
         )
         copy.load_state_dict(network.state_dict())
         return copy.to(self.device)
-     def learn(self, env, total_timesteps = 10000, alpha = 0.15):
+     def learn(self, env, eval_env = None, total_timesteps = 10000, alpha = 0.003, train_freq=4):  # усреднение примерно по 300 последним шагам
         current_state, _ = env.reset()
         rew_on_lr = []
         rew_on_episode = 0.0
@@ -170,19 +182,21 @@ class MyDQN():
             new_state, reward, done, _, _  = env.step(action)
             rew_on_episode += reward
             self.buffer.push((current_state, action, reward, new_state, done))
-            cur_loss = self.update()
+            if i % train_freq == 0:
+                cur_loss = self.update()   # ибо stable baselines раз в 4 шага, мб поможет
             current_state = new_state
+            self.step_counter += 1
             if (i % 1000 == 0) and i > (self.learning_starts):
                 self.loss_history.append(cur_loss)
-            if self.step_counter % self.target_update_freq == 0:
-                self.target_network.load_state_dict(self.q_network.state_dict())
-            self.step_counter += 1
+            #if self.step_counter % self.target_update_freq == 0:
+            #    self.target_network.load_state_dict(self.q_network.state_dict())
             if done:
                 rew_on_lr.append(rew_on_episode if not rew_on_lr else (1-alpha)*rew_on_lr[-1] + alpha*rew_on_episode)
                 rew_on_episode = 0.0
                 current_state, _ = env.reset()
-            if (i % 100000 == 0):
+            if (i % 100000 == 0 and i>1):
                 print(f"прошло {i+1} шагов")
+                self._save_and_logs(i=i, eval_env = eval_env)
         return rew_on_lr    # по нему можно построить график как в лекции от шада
                 
      def pretrain_on_dataset(self, data, n_epoch = 10):
@@ -218,3 +232,17 @@ class MyDQN():
         self.q_network.load_state_dict(torch.load(path, map_location = self.device))
         self.target_network.load_state_dict(self.q_network.state_dict())
         self.q_network.train()
+     def _save_and_logs(self, i, eval_env):
+        if eval_env:
+            self.save(f"pong_mydqn_rb150_{i}_steps")
+            real_step_counter = self.step_counter
+            self.step_counter = 10**9
+            try:
+                stats_mydqn = eval_env.demo(left_player=self)
+            finally:
+                self.step_counter = real_step_counter
+            for key, element in stats_mydqn.items():
+                print(f"{key} - {element}")
+            print(f"current loss - {self.loss_history[-1]}")
+             
+        
