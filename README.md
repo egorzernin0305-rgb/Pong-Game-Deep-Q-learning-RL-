@@ -18,7 +18,7 @@
 
 ### О проекте
 
-Это не «ещё один DQN на Pong» — цель проекта была не просто решить задачу, а спроектировать и обкатать нестандартный подход к exploration в DQN: вместо классического ε-greedy агент использует **MC-Dropout как оценку эпистемической неопределённости** и выбирает действия по принципу **UCB** (upper confidence bound), балансируя между ожидаемой ценностью действия и уверенностью сети в этой оценке.
+Цель проекта была не просто решить задачу, а спроектировать и обкатать нестандартный подход к exploration в DQN: вместо классического ε-greedy агент использует **MC-Dropout как оценку эпистемической неопределённости** и выбирает действия по принципу **UCB** (upper confidence bound), балансируя между ожидаемой ценностью действия и уверенностью сети в этой оценке.
 
 ### Цели проекта
 
@@ -74,8 +74,8 @@ stats = env.demo(left_player=agent)  # agent — обученный MyDQN
 
 | Метрика | Значение |
 |---|---|
-| Win rate против `Baseline(difficult=1)` | **~20% побед в отдельных розыгрышах** (61 из 300, лучший статистически надёжный результат серии экспериментов) |
-| Число шагов обучения (лучший чекпоинт) | 700 000 |
+| Win rate против `Baseline(difficult=1)` | **~25% побед в отдельных розыгрышах** (110 из 300 - лучший статистически надёжный результат серии экспериментов) |
+| Число шагов обучения (лучший чекпоинт) | 1 800 000 |
 | Reward shaping | бонус за удар `0.3 · exp(\|alpha\|)`, где `alpha` — точка контакта мяча с ракеткой |
 | Сравнение с `stable-baselines3` | сопоставимый результат на той же reward-функции, та же ключевая стратегия |
 
@@ -86,86 +86,3 @@ stats = env.demo(left_player=agent)  # agent — обученный MyDQN
 - Bootstrapped DQN / ансамбль голов как более устойчивая альтернатива MC-Dropout для exploration.
 - Prioritized Experience Replay.
 - Обучение против нескольких уровней сложности эвристики / self-play.
-
-### Лицензия
-
-Учебный проект, лицензия не устанавливалась — код можно свободно использовать и изучать, но без формальных гарантий и обязательств.
-
----
-
-## 🇬🇧 English
-
-### About
-
-This isn't just "another DQN on Pong" — the goal was to design and stress-test a non-standard exploration mechanism for DQN: instead of classic ε-greedy, the agent estimates epistemic uncertainty via **MC-Dropout** and selects actions using a **UCB**-style rule, balancing expected action value against the network's confidence in that estimate.
-
-### Goals
-
-- Build a Pong environment from scratch on `gymnasium` — normalized observations, configurable opponent difficulty, rendering and demo modes.
-- Train a DQN agent fine-tuned on top of an imitation-learning warm start.
-- Explore **MC-Dropout as an exploration signal** in RL (an alternative to ε-greedy / bootstrapped DQN) — understand in practice where this idea works and where it introduces side effects (training instability, policy collapse).
-- Get the agent to beat a heuristic baseline, ideally by discovering non-trivial strategies (e.g. hitting the ball with the paddle's edge for extra speed).
-
-### Repository layout
-
-| File | Purpose |
-|---|---|
-| `env_pong.py` | Custom `gymnasium` Pong environment: ball/paddle physics, normalized observations, rendering and demo-match support |
-| `models.py` | Players: `Baseline` (ball-following heuristic), `HumanPlayer`, `DQN_StBaselines3` (wrapper around `stable-baselines3`), `MyDQN` — the main agent |
-| `mydqn_components.py` | `ReplayBuffer` and `Q_network` (dropout MLP) |
-| `pong_game.ipynb` | Notebook: dataset collection from the heuristic → behavior cloning pretraining → RL fine-tuning → evaluation |
-
-### Architecture & key design choices
-
-**Observation:** 6 normalized features — ball position, ball velocity (both axes), both paddle positions.
-
-**Actions:** down / up / stay.
-
-**Training pipeline:**
-1. **Behavior cloning** — pretrain `Q_network` on the `Baseline` heuristic's action dataset, giving the agent a sane starting point instead of learning basic ball-tracking from scratch via RL.
-2. **RL fine-tuning (DQN):**
-   - **MC-Dropout UCB exploration** — multiple stochastic forward passes (dropout enabled) at action-selection time; the spread across samples estimates uncertainty, and the action is chosen via `mean_Q + β(t)·std_Q`, with `β(t)` annealing over time;
-   - **ε-greedy on top of UCB** — a guaranteed source of action diversity early in training (needed because the post-pretraining network was confident enough to collapse onto a single action otherwise);
-   - **Double DQN** — reduces systematic Q-value overestimation;
-   - **Soft target updates (Polyak averaging)** — smooth target-network updates instead of abrupt periodic syncing;
-   - **Reward shaping** — an edge-hit bonus (`0.3 · exp(|alpha|)`, where `alpha` is the contact point), adding speed the heuristic opponent can't keep up with.
-
-### Getting started
-
-```bash
-pip install -r requirements.txt
-```
-
-Open `pong_game.ipynb` and run the cells in order: dataset collection → pretraining → RL fine-tuning → evaluation (`env.demo()`).
-
-For a visual demo of the trained agent:
-```python
-from env_pong import PongEnv
-from models import MyDQN, Baseline
-
-env = PongEnv(render_mode="human", opponent=Baseline(difficult=1))
-stats = env.demo(left_player=agent)  # agent is the trained MyDQN
-```
-
-### Results
-
-The agent was trained against a heuristic baseline (`Baseline(difficult=1)`) that tracks the ball and returns to center. The resulting policy discovers and exploits edge-of-paddle hits for extra ball speed, which the baseline fails to react to in time. An independent reference DQN implementation on `stable-baselines3`, trained with the same reward function, found the exact same strategy — confirming it's an objectively optimal tactic against this opponent, not an artifact of this particular implementation.
-
-| Metric | Value |
-|---|---|
-| Win rate vs `Baseline(difficult=1)` | **~20% of individual rounds won** (61 out of 300, best statistically reliable result across the experiment series) |
-| Training steps (best checkpoint) | 700,000 |
-| Reward shaping | edge-hit bonus `0.3 · exp(\|alpha\|)`, where `alpha` is the ball's contact point on the paddle |
-| Comparison with `stable-baselines3` | comparable result on the same reward function, same key strategy discovered |
-
-The agent does not yet win a full match (a round series up to `n_rounds` points) — it reliably scores part of the points via the strategy above, but doesn't fully dominate the baseline.
-
-### Possible future work
-
-- Bootstrapped DQN / ensemble heads as a more stable alternative to MC-Dropout for exploration.
-- Prioritized Experience Replay.
-- Training against multiple heuristic difficulty levels / self-play.
-
-### License
-
-Educational project — no license attached; feel free to use and study the code, but without formal guarantees.
