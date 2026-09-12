@@ -2,20 +2,17 @@
 
 > Кастомное окружение Pong на `gymnasium` + агент на базе DQN с нестандартным механизмом exploration через MC-Dropout (UCB), предобученный имитацией эвристики и дообученный онлайн-RL.
 
+<h3 align="center">My_DQN gameplay</h3>
 <p align="center">
-  <h3>My_DQN gameplay</h3>
   <img src="gifs/My_DQN.gif" width="480">
 </p>
 
+<h3 align="center">Stable_baselines3 DQN gameplay</h3>
 <p align="center">
-  <h3>Stable_baselines3 DQN gameplay</h3>
   <img src="gifs/Stable_Baselines3_DQN.gif" width="480">
 </p>
 
 ---
-
-
-
 ## 🇷🇺 Русский
 
 ### О проекте
