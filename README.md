@@ -99,22 +99,19 @@ pip install -r requirements.txt
 ### Графики обучения
 
 <figure align="center">
-  <img src="gifs_and_pictures/EMA Reward (MyDQN).png" width="700" alt="График EMA Reward">
-  <br><br>
-  <figcaption style="text-align: justify; padding: 0 40px; max-width: 700px;">
+  <img src="gifs_and_pictures/EMA Reward (MyDQN).png" width="740" alt="График EMA Reward">
+  <figcaption style="text-align: justify; padding: 10px 40px 0 40px; max-width: 700px;">
     На графике EMA reward виден постепенный рост со временем, но с периодами спада, которые не исчезают полностью даже на поздних шагах обучения — типичная картина для среды с сильно вариативным reward за розыгрыш в сочетании с exploration, который затухает, но не обнуляется до конца.
   </figcaption>
 </figure>
-
-<br>
-
+<br><br><br>
 <figure align="center">
-  <img src="gifs_and_pictures/Loss History (MyDQN).png" width="700" alt="График Loss History">
-  <br><br>
-  <figcaption style="text-align: justify; padding: 0 40px; max-width: 700px;">
+  <img src="gifs_and_pictures/Loss History (MyDQN).png" width="740" alt="График Loss History">
+  <figcaption style="text-align: justify; padding: 10px 40px 0 40px; max-width: 700px;">
     График loss показывает характерную гладкую базу с регулярными острыми всплесками на протяжении почти всего обучения. Основные причины разобраны в разделе <a href="#выводы-по-итогам-экспериментов">Выводы по итогам экспериментов</a> — вкратце, это ожидаемый побочный эффект dropout, участвующего в обучении весов (нужен для калибровки MC-Dropout), и нестационарности TD-таргета, свойственной Q-learning в принципе.
   </figcaption>
 </figure>
+
 
 
 
