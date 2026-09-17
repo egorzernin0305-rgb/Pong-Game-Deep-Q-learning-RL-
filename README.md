@@ -11,7 +11,6 @@
 <p align="center">
   <img src="gifs_and_pictures/Stable_Baselines3_DQN.gif" width="480">
 </p>
----
 
 ## 🇷🇺 Русский
 
