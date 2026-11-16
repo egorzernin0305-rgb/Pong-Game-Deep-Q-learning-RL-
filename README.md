@@ -2,6 +2,10 @@
 
 > Кастомное окружение Pong на `gymnasium` с ускорением мяча при отбивании краем ракетки + агент на базе DQN с нестандартным механизмом exploration через MC-Dropout (UCB), предобученный имитацией эвристики и дообученный онлайн-RL.
 
+> A custom Pong environment built on `gymnasium`, plus a DQN-based agent with a non-standard exploration mechanism via MC-Dropout (UCB), pretrained by imitating a heuristic and then fine-tuned with online RL.
+
+**Languages / Языки:** [🇷🇺 Русский](#-русский) · [🇬🇧 English](#-english)
+
 <h3 align="center">My_DQN gameplay</h3>
 <p align="center">
   <img src="gifs_and_pictures/My_DQN.gif" width="480">
@@ -128,3 +132,118 @@ pip install -r requirements.txt
 - **Ансамбль независимых Q-сетей** (каждая обучается на своём подвыборе батчей) как более честная альтернатива MC-Dropout для оценки неопределённости — разброс предсказаний между независимыми сетями интерпретируется яснее, чем dropout-сэмплирование внутри одной сети. Основное опасение: это ощутимо дороже по вычислениям (N сетей вместо одной на каждом forward/backward проходе), и при выборе действия на каждом шаге среды (как сейчас устроен MC-Dropout-UCB) это могло бы заметно замедлить обучение и рендеринг игры.
 - **Prioritized Experience Replay** — сэмплировать переходы для батча не равномерно, а пропорционально их TD-ошибке, чтобы чаще обучаться на редких, но информативных переходах (например, момент удара по краю ракетки), а не тратить вычисления на уже хорошо предсказанные, рутинные шаги.
 - Обучение против нескольких уровней сложности эвристики / self-play.
+
+---
+
+## 🇬🇧 English
+
+### Table of Contents
+
+- [About the Project](#about-the-project)
+- [Project Goals](#project-goals)
+- [Repository Structure](#repository-structure)
+- [Architecture and Key Technical Decisions](#architecture-and-key-technical-decisions)
+- [How to Run](#how-to-run)
+- [Results](#results)
+- [Training Curves](#training-curves)
+- [Conclusions from the Experiments](#conclusions-from-the-experiments)
+- [Possible Future Improvements](#possible-future-improvements)
+
+### About the Project
+
+The goal of this project was not just to solve the task, but to design and test a non-standard approach to exploration in DQN. Instead of classic ε-greedy, the agent uses **MC-Dropout as an uncertainty estimate** and selects actions following the **UCB** (upper confidence bound) principle, balancing the expected value of an action against the network's confidence in that estimate.
+
+### Project Goals
+
+- Implement a Pong environment from scratch on top of `gymnasium`, with normalized observations, configurable opponent difficulty and a rendering mode.
+- Implement and train a DQN agent that is fine-tuned on top of pretraining on a heuristic.
+- Investigate **MC-Dropout as a source of exploration** in RL (an alternative to ε-greedy) — to find out in practice where this idea works and where it causes unexpected side effects (training instability, policy collapse).
+- Bring the agent to the point of beating the baseline and compare it against the reference DQN implementation from `stable-baselines3`.
+
+### Repository Structure
+
+| File / folder | Purpose |
+| --- | --- |
+| `env_pong.py` | Custom `gymnasium` Pong environment: ball/paddle physics, normalized observations, rendering and demo-match modes |
+| `models.py` | Players: `Baseline` (heuristic — follows the ball), `HumanPlayer`, `DQN_StBaselines3` (a wrapper around `stable-baselines3`), `MyDQN` — the main agent |
+| `mydqn_components.py` | `ReplayBuffer` and `Q_network` (an MLP with dropout) |
+| `pong_mydqn_training&stats.ipynb` | Main training notebook: pretraining (behavior cloning) → RL fine-tuning → metric plots (EMA reward, loss history) |
+| `pong_game_evaluation.ipynb` | Agent evaluation notebook — loads a saved checkpoint from `saved_models/` and runs the trained agent without rendering (metrics only) |
+| `showcase.ipynb` | Visual demo notebook — renders the trained agent's gameplay; used to record the GIFs in `gifs_and_pictures/` |
+| `pong_datasets/` | Dataset of (state, action) pairs collected from the `Baseline` heuristic, used for behavior-cloning pretraining of `Q_network` |
+| `saved_models/` | Saved weights of trained agents (`MyDQN` checkpoints), including the best model from the experiments |
+| `gifs_and_pictures/` | Gameplay GIFs — `My_DQN.gif` (custom agent) and `Stable_Baselines3_DQN.gif` (reference DQN implementation for comparison), plus screenshots of Loss History and EMA Reward for MyDQN |
+| `other/` | Loss history (`loss_history`) for the training runs — stored separately so the plots can be rebuilt without re-running training |
+| `requirements.txt` | Project dependencies for reproducing the environment (`pip install -r requirements.txt`) |
+| `.gitignore` | Excludes service/temporary files (`__pycache__`, Jupyter checkpoints, etc.) from the repository |
+
+### Architecture and Key Technical Decisions
+
+**Observation (state):** 6 normalized features — the ball's position and velocity along both axes, and the positions of both paddles.
+
+**Actions:** down / up / stay.
+
+**Training pipeline:**
+
+1. **Behavior cloning** — pretraining `Q_network` on a dataset of `Baseline` heuristic actions, to give the agent a sensible starting point and avoid teaching it basic skills (tracking the ball) from scratch through RL.
+2. **RL fine-tuning (DQN)** — fine-tuning through interaction with the environment:
+   - **MC-Dropout UCB exploration** — when choosing an action, the network makes several stochastic forward passes (dropout enabled); the spread of the predictions gives an uncertainty estimate, and the action is chosen by `mean_Q + β(t)·std_Q`, where `β(t)` decays over time;
+   - **ε-greedy on top of UCB** — an additional guaranteed source of action diversity at the start of training;
+   - **Double DQN** — reduces systematic overestimation of Q-values;
+   - **Soft target update (Polyak averaging)** — smooth updates of the target network instead of abrupt periodic synchronization;
+   - **Reward shaping** — a bonus for hitting the ball closer to the paddle's edge (`0.3 · exp(|alpha|)`, where `alpha` is the contact point), which accelerates the ball in a way the heuristic cannot react to in time.
+
+### How to Run
+
+```bash
+pip install -r requirements.txt
+```
+
+- Training from scratch: `pong_mydqn_training&stats.ipynb` (dataset collection → pretraining → RL fine-tuning → plots).
+- Inference with an already trained model: `pong_game_evaluation.ipynb`.
+- Visual gameplay demo: `showcase.ipynb`.
+
+### Results
+
+The agent was trained against the heuristic baseline (`Baseline(difficult=1)`), which follows the ball and returns to the center of the field. Both models — the custom `MyDQN` and the reference `stable-baselines3` implementation — independently discovered the same key strategy: hitting the ball with the edge of the paddle, which gives it extra acceleration that the baseline cannot adapt to. This suggests that the discovered tactic is objectively optimal against this opponent, rather than an artifact of a particular implementation.
+
+| Metric | MyDQN (custom) | Stable-Baselines3 DQN |
+| --- | --- | --- |
+| Win rate vs `Baseline(difficult=1)` | **26.8%** (110 of 410 rallies) | **62.9%** (300 of 477 rallies) |
+| Mean reward per rally | 0.28 | 2.37 |
+| Reward variance | 1.90 | 6.22 |
+| Mean rally length | ~421 steps | ~960 steps |
+| Training steps (best checkpoint) | 1,800,000 | 1,450,000 |
+| Reward shaping | `0.3 · exp(\|alpha\|)`, where `alpha` is the contact point | same |
+
+**Honest assessment:** even though both models arrived at the same strategy, the standard DQN implementation from `stable-baselines3` clearly outperforms the custom MC-Dropout-UCB implementation in final win rate. Only the `stable-baselines3` agent wins a full match (a series of rallies up to `n_rounds` points).
+
+### Training Curves
+
+<figure align="center">
+  <img src="gifs_and_pictures/EMA Reward (MyDQN).png" width="740" alt="EMA Reward plot">
+  <figcaption style="text-align: justify; padding: 10px 40px 0 40px; max-width: 700px;">
+    The EMA reward plot shows a gradual increase over time, but with dips that do not disappear completely even at late training steps — a typical picture for an environment with highly variable per-rally reward combined with exploration that decays but never fully reaches zero.
+  </figcaption>
+</figure>
+<br><br><br>
+<figure align="center">
+  <img src="gifs_and_pictures/Loss History (MyDQN).png" width="740" alt="Loss History plot">
+  <figcaption style="text-align: justify; padding: 10px 40px 0 40px; max-width: 700px;">
+    The loss plot shows a smooth baseline with regular sharp spikes throughout almost the entire training run. The main causes are discussed in <a href="#conclusions-from-the-experiments">Conclusions from the Experiments</a> — in short, this is an expected side effect of dropout being active during weight training (needed to calibrate MC-Dropout), together with the non-stationarity of the TD target that is inherent to Q-learning in general.
+  </figcaption>
+</figure>
+
+### Conclusions from the Experiments
+
+- **MC-Dropout-UCB alone turned out to be insufficient for reliable exploration.** After behavior-cloning pretraining, the network sometimes became overconfident even before RL started — a small spread between dropout samples gave the agent no diversity in actions, which led to policy collapse. The fix was to add classic ε-greedy on top of UCB.
+- **Vanilla DQN with a hard target-network sync caused oscillating metrics** — periods of rising win rate were followed by drops. **Double DQN** and **soft target updates** noticeably reduced this effect.
+- **The reward shaping that looked "suspiciously strong" on pure arithmetic** turned out to be the best option in practice — hitting the ball with the paddle's edge almost guarantees a point against this particular baseline. Softer reward variants, tested out of concern about over-optimization, never outperformed the original formula.
+- **The custom implementation falls short of the standard DQN from `stable-baselines3`** (26.8% vs 62.9% win rate) with the same environment and reward function, despite the independently discovered identical strategy — most likely the more complex exploration mechanism (MC-Dropout-UCB) trades some stability/efficiency for a more interesting research idea compared with a well-tuned standard implementation.
+- **Checkpoints should be saved immediately and often.** Several promising models from long Google Colab runs were lost because nothing was saved during training.
+
+### Possible Future Improvements
+
+- **An ensemble of independent Q-networks** (each trained on its own subset of batches) as a more principled alternative to MC-Dropout for uncertainty estimation — the spread of predictions across independent networks is easier to interpret than dropout sampling inside a single network. The main concern: it is noticeably more expensive computationally (N networks instead of one on every forward/backward pass), and since an action is selected at every environment step (as MC-Dropout-UCB currently does), this could significantly slow down training and game rendering.
+- **Prioritized Experience Replay** — sample transitions for a batch not uniformly but proportionally to their TD error, so the agent learns more often from rare but informative transitions (e.g. the moment of an edge hit) instead of spending compute on routine steps that are already well predicted.
+- Training against several heuristic difficulty levels / self-play.
